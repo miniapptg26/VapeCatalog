@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="description" content="Каталог блогеров — YouTube, TikTok, Telegram, Instagram и Twitch: ниши, подписчики, верификация и прямые ссылки на профили.">
-  <title>Vape Catalog</title>
+  <title>Каталог блогеров</title>
   <script>
     // Тема применяется до отрисовки, чтобы не было «мигания»
     (function () {
@@ -21,14 +21,15 @@
   <header class="header">
     <div class="header-inner">
       <div class="header-titles">
-        <h1>Vape Catalog</h1>
+        <h1>Каталог блогеров</h1>
         <p class="subtitle">Авторы и каналы — по платформам и нишам</p>
       </div>
       <div class="header-actions">
-        <span id="countLabel" class="count-label">0 блогеров</span>
+        <span id="countLabel" class="count-label">0 записей</span>
+        <button id="refreshBtn" class="header-round-btn" type="button" aria-label="Обновить каталог" title="Обновить каталог">🔄</button>
         <button id="statsBtn" class="header-round-btn" type="button" aria-label="Статистика" title="Статистика">📊</button>
         <button id="exportBtn" class="header-round-btn" type="button" aria-label="Экспорт выборки" title="Скопировать список текущей выборки">📤</button>
-        <button id="viewToggle" class="header-round-btn view-toggle" type="button" aria-label="Переключить вид: сетка / строки" title="Вид: сетка / строки">▦</button>
+        <button id="shareBtn" class="header-round-btn" type="button" aria-label="Поделиться каталогом" title="Скопировать ссылку на каталог">🔗</button>
         <button id="luckyBtn" class="lucky-btn" type="button" aria-label="Мне повезёт" title="Мне повезёт">🎲</button>
         <button id="themeToggle" class="theme-toggle" type="button" aria-label="Сменить тему" title="Сменить тему">🌙</button>
       </div>
@@ -69,14 +70,24 @@
       </div>
       <div id="chips" class="chips" role="group" aria-label="Платформы"></div>
       <div id="chips2" class="chips chips2" role="group" aria-label="Ниши"></div>
+      <div id="activeFilters" class="active-filters" role="group" aria-label="Активные фильтры" hidden></div>
     </section>
 
     <section aria-label="Каталог блогеров">
+      <!-- Скелетон первой загрузки: 4 серые карточки-заглушки -->
+      <div id="skeleton" class="skeleton" aria-hidden="true">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+      </div>
       <div id="catalog" class="catalog"></div>
+      <button id="loadMoreBtn" class="load-more-btn" type="button" hidden>Показать ещё</button>
       <div id="emptyState" class="empty-state" hidden>
         <div class="empty-emoji" aria-hidden="true">📭</div>
         <p>Ничего не найдено</p>
         <p class="empty-sub">Попробуйте изменить запрос или сбросить фильтры</p>
+        <button id="emptyResetBtn" class="empty-reset-btn" type="button">Сбросить фильтры</button>
       </div>
     </section>
   </main>
@@ -91,6 +102,7 @@
     <div class="modal-panel detail-panel" role="dialog" aria-modal="true" aria-label="Подробнее о блогере">
       <button id="detailCloseBtn" class="detail-close" type="button" aria-label="Закрыть">✕</button>
       <div id="detailBody" class="detail-body"></div>
+      <p class="modal-hint">Esc — закрыть</p>
     </div>
   </div>
 
@@ -103,6 +115,7 @@
       </div>
       <button id="statsCloseBtn" class="detail-close" type="button" aria-label="Закрыть">✕</button>
       <div id="statsBody" class="stats-body"></div>
+      <p class="modal-hint">Esc — закрыть</p>
     </div>
   </div>
 

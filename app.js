@@ -29,6 +29,25 @@ const PLATFORM_COLORS = {
 
 const DEFAULT_EMOJI = '🎭';
 
+/* ===== Диапазоны аудитории (только блогеры, взаимоисключающие) ===== */
+const SUBS_RANGES = [
+  { key: 'low', label: 'до 100 тыс', test: (n) => n < 100000 },
+  { key: 'mid', label: '100 тыс – 1 млн', test: (n) => n >= 100000 && n < 1000000 },
+  { key: 'high', label: 'от 1 млн', test: (n) => n >= 1000000 }
+];
+
+/* ===== Подписи сортировки для панели активных фильтров ===== */
+const SORT_LABELS = {
+  subs_desc: 'Подписчики ↓',
+  subs_asc: 'Подписчики ↑',
+  name: 'Имя А-Я',
+  name_desc: 'Имя Я-А',
+  id: 'Новые'
+};
+
+/* ===== Размер порции «Показать ещё» (только в памяти сессии) ===== */
+const PAGE_SIZE = 24;
+
 /* ===== Медиа: изображение или эмодзи-заглушка ===== */
 function buildEmojiEl(item, sizeClass) {
   const span = document.createElement('span');
@@ -91,17 +110,23 @@ const FAVS_KEY = 'blogger_favs';    // JSON-массив id избранных �
 const THEME_KEY = 'blogger_theme';  // 'dark' | 'light'
 
 /* ===== Состояние ===== */
+/* Всё, кроме favs и theme, живёт только в памяти текущей сессии */
 const state = {
   bloggers: [],        // все блогеры из bloggers.json
   search: '',          // текущий запрос
   platform: 'Все',     // активная платформа-чип
   niche: 'Все ниши',   // активная ниша (второй ряд чипов)
+  subsRange: null,     // 'low' | 'mid' | 'high' | null (диапазон аудитории, только сессия)
   favOnly: false,      // чип «Избранное»
   verifiedOnly: false, // toggle-чип «Verified»
   sort: 'subs_desc',   // subs_desc | subs_asc | name | name_desc | id
-  view: 'grid',        // 'grid' | 'rows' (только сессия, без localStorage)
+  limit: PAGE_SIZE,    // сколько записей показано («Показать ещё»)
+  sig: '',             // подпись фильтров: при смене лимит сбрасывается
   favs: new Set(loadFavs()),  // id избранных блогеров
 };
+
+/* Сравнение профилей (⚖️ compare) намеренно не реализовано: эта функция
+   есть только в VapeCatalog. Здесь состояние — тоже только память сессии. */
 
 /* ===== Telegram WebApp ===== */
 const tg = window.Telegram ? window.Telegram.WebApp : null;
@@ -121,9 +146,15 @@ const luckyBtn = document.getElementById('luckyBtn');
 const themeToggle = document.getElementById('themeToggle');
 const statsBtn = document.getElementById('statsBtn');
 const exportBtn = document.getElementById('exportBtn');
-const viewToggle = document.getElementById('viewToggle');
+
 const toTopBtn = document.getElementById('toTop');
 const loaderEl = document.getElementById('loader');
+const skeletonEl = document.getElementById('skeleton');
+const refreshBtn = document.getElementById('refreshBtn');
+const shareBtn = document.getElementById('shareBtn');
+const activeFiltersEl = document.getElementById('activeFilters');
+const loadMoreBtn = document.getElementById('loadMoreBtn');
+const emptyResetBtn = document.getElementById('emptyResetBtn');
 const detailModal = document.getElementById('detailModal');
 const detailCloseBtn = document.getElementById('detailCloseBtn');
 const detailBody = document.getElementById('detailBody');
@@ -134,6 +165,267 @@ const statsBody = document.getElementById('statsBody');
 /* Данные каталога изменяются только через bloggers.json на GitHub */
 
 let detailItem = null; // текущий блогер в модалке деталей
+
+/* ===== Вибро-отклик (Telegram Haptics; безопасно в браузере) ===== */
+function haptic(type) {
+  try {
+    const wa = window.Telegram && window.Telegram.WebApp;
+    const hf = wa && wa.HapticFeedback;
+    if (!hf) return;
+
+    if (type === 'success' || type === 'warning' || type === 'error') {
+      if (typeof hf.notificationOccurred === 'function') {
+        hf.notificationOccurred(type);
+      }
+      return;
+    }
+
+    if (typeof hf.selectionChanged === 'function') hf.selectionChanged();
+    if (typeof hf.impactOccurred === 'function') hf.impactOccurred('light');
+  } catch (e) {}
+}
+
+/* ===== Сохранение позиции скролла при открытии/закрытии модалок ===== */
+let savedScrollY = 0;
+
+function rememberScroll() {
+  try { savedScrollY = window.scrollY || 0; } catch (e) { savedScrollY = 0; }
+}
+
+function restoreScroll() {
+  if (!savedScrollY) return;
+  try {
+    window.scrollTo({ top: savedScrollY, behavior: 'auto' });
+  } catch (e) {
+    try { window.scrollTo(0, savedScrollY); } catch (e2) {}
+  }
+}
+
+/* ===== Подписи фильтров для панели активных фильтров ===== */
+function sortLabel(value) {
+  return SORT_LABELS[value] || value;
+}
+
+function subsRangeLabel(key) {
+  const found = SUBS_RANGES.find((r) => r.key === key);
+  return found ? found.label : '';
+}
+
+/* Возвращает массив активных фильтров: { label, clear } */
+function activeFilterTags() {
+  const tags = [];
+  const q = state.search.trim();
+
+  if (q) {
+    tags.push({ label: 'Поиск: ' + q, clear: () => { clearSearch(); } });
+  }
+  if (state.platform !== 'Все') {
+    tags.push({
+      label: 'Платформа: ' + (PLATFORM_LABELS[state.platform] || state.platform),
+      clear: () => { state.platform = 'Все'; }
+    });
+  }
+  if (state.niche !== 'Все ниши') {
+    tags.push({ label: 'Ниша: ' + state.niche, clear: () => { state.niche = 'Все ниши'; } });
+  }
+  if (state.subsRange) {
+    tags.push({ label: 'Аудитория: ' + subsRangeLabel(state.subsRange), clear: () => { state.subsRange = null; } });
+  }
+  if (state.verifiedOnly) {
+    tags.push({ label: 'Verified', clear: () => { state.verifiedOnly = false; } });
+  }
+  if (state.favOnly) {
+    tags.push({ label: 'Избранное', clear: () => { state.favOnly = false; } });
+  }
+  if (state.sort !== 'subs_desc') {
+    tags.push({
+      label: 'Сортировка: ' + sortLabel(state.sort),
+      clear: () => { state.sort = 'subs_desc'; if (sortSelect) sortSelect.value = 'subs_desc'; }
+    });
+  }
+  return tags;
+}
+
+/* ===== Панель активных фильтров ===== */
+function renderActiveFilters() {
+  if (!activeFiltersEl) return;
+
+  activeFiltersEl.replaceChildren();
+  const tags = activeFilterTags();
+
+  if (tags.length === 0) {
+    activeFiltersEl.hidden = true;
+    return;
+  }
+  activeFiltersEl.hidden = false;
+
+  tags.forEach((tag) => {
+    const chip = document.createElement('span');
+    chip.className = 'af-chip';
+
+    const label = document.createElement('span');
+    label.className = 'af-label';
+    label.textContent = tag.label;
+
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'af-x';
+    x.textContent = '✕';
+    x.setAttribute('aria-label', 'Снять фильтр: ' + tag.label);
+    x.addEventListener('click', () => {
+      haptic('light');
+      tag.clear();
+      renderChips();
+      renderChips2();
+      renderAll();
+    });
+
+    chip.append(label, x);
+    activeFiltersEl.appendChild(chip);
+  });
+
+  const resetAll = document.createElement('button');
+  resetAll.type = 'button';
+  resetAll.className = 'af-reset';
+  resetAll.textContent = 'Сбросить всё';
+  resetAll.addEventListener('click', () => {
+    haptic('light');
+    resetFilters();
+  });
+  activeFiltersEl.appendChild(resetAll);
+}
+
+/* ===== Пагинация «Показать ещё» ===== */
+function filtersSignature() {
+  return [
+    state.search.trim(),
+    state.platform,
+    state.niche,
+    state.subsRange || '',
+    state.favOnly ? '1' : '0',
+    state.verifiedOnly ? '1' : '0',
+    state.sort
+  ].join('|');
+}
+
+function renderLoadMore(shown, total) {
+  if (!loadMoreBtn) return;
+  const rest = total - shown;
+  if (rest > 0) {
+    loadMoreBtn.hidden = false;
+    loadMoreBtn.textContent = 'Показать ещё (осталось ' + rest + ')';
+  } else {
+    loadMoreBtn.hidden = true;
+  }
+}
+
+/* ===== Скелетон первой загрузки ===== */
+function hideSkeleton() {
+  if (skeletonEl) skeletonEl.hidden = true;
+}
+
+/* ===== Прокрутка к каталогу (с учётом липкой шапки) ===== */
+function scrollToCatalog() {
+  try {
+    if (!catalogEl || typeof catalogEl.getBoundingClientRect !== 'function') return;
+
+    const header = (typeof document.querySelector === 'function') ? document.querySelector('.header') : null;
+    const headerH = (header && typeof header.getBoundingClientRect === 'function')
+      ? header.getBoundingClientRect().height : 0;
+    const current = window.scrollY || 0;
+    const target = catalogEl.getBoundingClientRect().top + current - headerH - 10;
+
+    if (current < target) {
+      catalogEl.style.scrollMarginTop = (headerH + 10) + 'px';
+      if (typeof catalogEl.scrollIntoView === 'function') {
+        catalogEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        window.scrollTo({ top: target, behavior: 'smooth' });
+      }
+    }
+  } catch (e) {}
+}
+
+/* ===== Горячие клавиши (десктоп) ===== */
+function closeTopModal() {
+  if (detailModal && detailModal.classList.contains('open')) { closeDetail(); return true; }
+  if (statsModal && statsModal.classList.contains('open')) { closeStats(); return true; }
+  return false;
+}
+
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName ? String(el.tagName).toLowerCase() : '';
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable === true;
+}
+
+function handleHotkey(event) {
+  if (!event) return;
+  const key = event.key;
+  if (!key) return;
+
+  const typing = isTypingTarget(event.target);
+
+  if ((key === '/' && !typing) || ((key === 'k' || key === 'K') && (event.ctrlKey || event.metaKey))) {
+    if (typeof event.preventDefault === 'function') event.preventDefault();
+    if (searchInput && typeof searchInput.focus === 'function') searchInput.focus();
+    return;
+  }
+
+  if (key === 'Escape') {
+    if (closeTopModal()) {
+      if (typeof event.preventDefault === 'function') event.preventDefault();
+      return;
+    }
+    if (searchInput && searchInput.value !== '') {
+      if (typeof event.preventDefault === 'function') event.preventDefault();
+      clearSearch();
+    }
+    return;
+  }
+
+  if (typing) return;
+
+  if (key === 't' || key === 'T') { haptic('light'); toggleTheme(); return; }
+}
+
+/* ===== Поделиться ссылкой на каталог ===== */
+async function shareCatalog() {
+  const ok = await copyText(location.href);
+  showToast(ok ? 'Ссылка скопирована' : 'Не удалось скопировать ссылку');
+}
+
+/* ===== Обновление каталога (🔄) ===== */
+async function refreshCatalog() {
+  if (!refreshBtn || refreshBtn.disabled) return;
+  refreshBtn.disabled = true;
+  refreshBtn.classList.add('spinning');
+  showLoader(true);
+
+  try {
+    const response = await fetch('bloggers.json');
+    if (!response.ok) {
+      throw new Error('Ошибка HTTP ' + response.status);
+    }
+    const parsed = parseJsonFile(await response.text(), 'bloggers.json');
+    if (!parsed.ok) {
+      showToast('Не удалось обновить: ошибка в файле bloggers.json');
+      return;
+    }
+    state.bloggers = parsed.data;
+    renderChips();
+    renderChips2();
+    renderAll();
+    showToast('Каталог обновлён: ' + state.bloggers.length + ' ' +
+      plural(state.bloggers.length, 'запись', 'записи', 'записей'));
+  } catch (err) {
+    showToast('Не удалось обновить: ' + (err && err.message ? err.message : 'неизвестная ошибка'));
+  } finally {
+    showLoader(false);
+    refreshBtn.disabled = false;
+    refreshBtn.classList.remove('spinning');
+  }
+}
 
 /* ===== Избранное ===== */
 function loadFavs() {
@@ -157,6 +449,7 @@ function toggleFav(id) {
   if (wasFav) state.favs.delete(id);
   else state.favs.add(id);
   saveFavs();
+  haptic('light');
   renderChips();
   renderCatalog();
   // Анимация «сердечко наполнилось» (0.3s)
@@ -305,12 +598,14 @@ async function loadBloggers() {
     return;
   }
   showLoader(false);
+  hideSkeleton();
   renderChips();
   renderChips2();
   renderAll();
 }
 
 function showLoadError(message, isParseError) {
+  hideSkeleton();
   catalogEl.replaceChildren();
   emptyStateEl.hidden = true;
 
@@ -417,17 +712,32 @@ function renderChips2() {
     chip.textContent = niche;
     chips2El.appendChild(chip);
   });
+
+  // Диапазоны аудитории (взаимоисключающие, повторный клик снимает)
+  SUBS_RANGES.forEach((range) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip subs-chip' + (state.subsRange === range.key ? ' active' : '');
+    chip.dataset.subs = range.key;
+    chip.setAttribute('aria-pressed', String(state.subsRange === range.key));
+    chip.textContent = range.label;
+    chips2El.appendChild(chip);
+  });
 }
 
 /* ===== Фильтры и сортировка ===== */
 function getFiltered() {
   const query = state.search.trim().toLowerCase();
+  const range = state.subsRange
+    ? SUBS_RANGES.find((r) => r.key === state.subsRange)
+    : null;
 
   const filtered = state.bloggers.filter((blogger) => {
     const byPlatform = state.platform === 'Все' || blogger.platform === state.platform;
     const byNiche = state.niche === 'Все ниши' || blogger.niche === state.niche;
     const byFav = !state.favOnly || state.favs.has(blogger.id);
     const byVerified = !state.verifiedOnly || blogger.verified === true;
+    const bySubs = !range || range.test(Number(blogger.subscribers) || 0);
     const label = PLATFORM_LABELS[blogger.platform] || '';
     const haystack = String(
       (blogger.displayName || '') + ' ' +
@@ -436,7 +746,7 @@ function getFiltered() {
       (blogger.platform || '') + ' ' + label
     ).toLowerCase();
     const bySearch = !query || haystack.includes(query);
-    return byPlatform && byNiche && byFav && byVerified && bySearch;
+    return byPlatform && byNiche && byFav && byVerified && bySubs && bySearch;
   });
 
   const sort = state.sort;
@@ -494,7 +804,8 @@ function hasActiveFilters() {
     state.favOnly ||
     state.verifiedOnly ||
     state.sort !== 'subs_desc' ||
-    state.niche !== 'Все ниши';
+    state.niche !== 'Все ниши' ||
+    Boolean(state.subsRange);
 }
 
 function updateResetBtn() {
@@ -507,6 +818,7 @@ function resetFilters() {
   if (searchInput) searchInput.value = '';
   state.platform = 'Все';
   state.niche = 'Все ниши';
+  state.subsRange = null;
   state.favOnly = false;
   state.verifiedOnly = false;
   state.sort = 'subs_desc';
@@ -520,17 +832,6 @@ function resetFilters() {
 
 /* Данные каталога изменяются только через bloggers.json на GitHub */
 
-/* ===== Вид: сетка / строки (только сессия) ===== */
-function toggleView() {
-  state.view = (state.view === 'rows') ? 'grid' : 'rows';
-  applyView();
-}
-
-function applyView() {
-  catalogEl.classList.toggle('rows', state.view === 'rows');
-  if (viewToggle) viewToggle.textContent = (state.view === 'rows') ? '☰' : '▦';
-}
-
 /* ===== Поиск: очистка «✕» + дебаунс ===== */
 function updateSearchClear(value) {
   if (!searchClear) return;
@@ -540,6 +841,15 @@ function updateSearchClear(value) {
 
 let searchTimer = null;
 
+/* Полная очистка поиска (используется кнопкой ✕, Esc и тегами фильтров) */
+function clearSearch() {
+  clearTimeout(searchTimer);
+  state.search = '';
+  if (searchInput) searchInput.value = '';
+  updateSearchClear('');
+  renderAll();
+}
+
 /* ===== Рендер ===== */
 function renderAll() {
   renderCount();
@@ -548,31 +858,44 @@ function renderAll() {
 
 function renderCount() {
   if (!countLabel) return;
-  const n = getFiltered().length;
-  if (state.favOnly) {
-    countLabel.textContent = n + ' в избранном';
+  const total = state.bloggers.length;
+  const shown = getFiltered().length;
+  if (!hasActiveFilters()) {
+    countLabel.textContent = total + ' ' + plural(total, 'запись', 'записи', 'записей');
   } else {
-    countLabel.textContent = n + ' ' + plural(n, 'блогер', 'блогера', 'блогеров');
+    countLabel.textContent = 'Показано ' + shown + ' из ' + total;
   }
 }
 
 function renderCatalog() {
   renderCount();
+  renderActiveFilters();
   const query = state.search.trim().toLowerCase();
 
   // Всегда рендерим отфильтрованный список из state.bloggers
   const filtered = getFiltered();
 
+  // Лимит «Показать ещё» сбрасывается в 24 при смене фильтров/поиска/сортировки
+  const sig = filtersSignature();
+  if (state.sig !== sig) {
+    state.sig = sig;
+    state.limit = PAGE_SIZE;
+  }
+  const visible = filtered.slice(0, state.limit);
+
   catalogEl.replaceChildren();
 
   if (filtered.length === 0) {
+    hideSkeleton();
     emptyStateEl.hidden = false;
+    renderLoadMore(0, 0);
     updateResetBtn();
     return;
   }
   emptyStateEl.hidden = true;
+  hideSkeleton();
 
-  filtered.forEach((blogger, i) => {
+  visible.forEach((blogger, i) => {
     const card = createCard(blogger);
     // Стаггер-анимация: порядковый номер в --i
     card.style.setProperty('--i', String(i));
@@ -587,6 +910,7 @@ function renderCatalog() {
     }
     catalogEl.appendChild(card);
   });
+  renderLoadMore(visible.length, filtered.length);
   updateResetBtn();
 }
 
@@ -780,6 +1104,7 @@ function showToast(message) {
 function openDetail(blogger) {
   detailItem = blogger;
   renderDetail(blogger);
+  rememberScroll();
   detailModal.classList.add('open');
   detailModal.setAttribute('aria-hidden', 'false');
   updateBackButton();
@@ -790,6 +1115,7 @@ function closeDetail() {
   detailModal.setAttribute('aria-hidden', 'true');
   detailItem = null;
   updateBackButton();
+  restoreScroll();
 }
 
 function updateBackButton() {
@@ -910,6 +1236,7 @@ async function shareBlogger() {
 /* ===== Статистика ===== */
 function openStats() {
   renderStats();
+  rememberScroll();
   statsModal.classList.add('open');
   statsModal.setAttribute('aria-hidden', 'false');
   updateBackButton();
@@ -919,6 +1246,7 @@ function closeStats() {
   statsModal.classList.remove('open');
   statsModal.setAttribute('aria-hidden', 'true');
   updateBackButton();
+  restoreScroll();
 }
 
 function makeStatRow(label, value, cls) {
@@ -1068,6 +1396,7 @@ toTopBtn.addEventListener('click', function () {
 chipsEl.addEventListener('click', (event) => {
   const chip = event.target.closest('.chip');
   if (!chip) return;
+  let isPlatformChip = false;
   if (chip.hasAttribute('data-fav')) {
     state.favOnly = !state.favOnly;
     if (state.favOnly) {
@@ -1078,15 +1407,27 @@ chipsEl.addEventListener('click', (event) => {
   } else if (chip.dataset.platform !== undefined) {
     state.platform = chip.dataset.platform;
     state.favOnly = false;
+    isPlatformChip = true;
   }
+  haptic('light');
   renderChips();
   renderCatalog();
+  if (isPlatformChip) scrollToCatalog();
 });
 
 chips2El.addEventListener('click', (event) => {
   const chip = event.target.closest('.chip');
-  if (!chip || chip.dataset.niche === undefined) return;
+  if (!chip) return;
+  if (chip.dataset.subs !== undefined) {
+    state.subsRange = (state.subsRange === chip.dataset.subs) ? null : chip.dataset.subs;
+    haptic('light');
+    renderChips2();
+    renderCatalog();
+    return;
+  }
+  if (chip.dataset.niche === undefined) return;
   state.niche = chip.dataset.niche;
+  haptic('light');
   renderChips2();
   renderCatalog();
 });
@@ -1102,22 +1443,17 @@ searchInput.addEventListener('input', (event) => {
 });
 
 searchClear.addEventListener('click', () => {
-  clearTimeout(searchTimer);
-  searchInput.value = '';
-  state.search = '';
-  updateSearchClear('');
-  renderCatalog();
+  clearSearch();
   searchInput.focus();
 });
 
 sortSelect.addEventListener('change', (event) => {
   state.sort = event.target.value;
+  haptic('light');
   renderCatalog();
 });
 
 resetBtn.addEventListener('click', resetFilters);
-
-viewToggle.addEventListener('click', toggleView);
 
 catalogEl.addEventListener('click', (event) => {
   const favBtn = event.target.closest('.fav-btn');
@@ -1202,12 +1538,32 @@ luckyBtn.addEventListener('click', () => {
   spinLucky(items);
 });
 
-themeToggle.addEventListener('click', toggleTheme);
+themeToggle.addEventListener('click', () => {
+  haptic('light');
+  toggleTheme();
+});
+
+/* Новые кнопки удобства */
+refreshBtn.addEventListener('click', refreshCatalog);
+shareBtn.addEventListener('click', shareCatalog);
+
+loadMoreBtn.addEventListener('click', () => {
+  state.limit += PAGE_SIZE;
+  haptic('light');
+  renderCatalog();
+});
+
+emptyResetBtn.addEventListener('click', () => {
+  haptic('light');
+  resetFilters();
+});
+
+/* Горячие клавиши (десктоп) */
+document.addEventListener('keydown', handleHotkey);
 
 /* ===== Старт ===== */
 applyTheme();
 initTelegram();
-applyView();
 updateSearchClear();
 updateResetBtn();
 loadBloggers();
