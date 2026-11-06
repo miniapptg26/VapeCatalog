@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="Каталог блогеров — YouTube, TikTok, Telegram, Instagram и Twitch: ниши, подписчики, верификация и прямые ссылки на профили.">
+  <title>Каталог блогеров</title>
+  <script>
+    // Тема применяется до отрисовки, чтобы не было «мигания»
+    (function () {
+      try {
+        if (localStorage.getItem('blogger_theme') === 'light') {
+          document.documentElement.classList.add('light');
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <div class="header-titles">
+        <h1>Каталог блогеров</h1>
+        <p class="subtitle">Авторы и каналы — по платформам и нишам</p>
+      </div>
+      <div class="header-actions">
+        <span id="countLabel" class="count-label">0 блогеров</span>
+        <button id="statsBtn" class="header-round-btn" type="button" aria-label="Статистика" title="Статистика">📊</button>
+        <button id="exportBtn" class="header-round-btn" type="button" aria-label="Экспорт выборки" title="Скопировать список текущей выборки">📤</button>
+        <button id="viewToggle" class="header-round-btn view-toggle" type="button" aria-label="Переключить вид: сетка / строки" title="Вид: сетка / строки">▦</button>
+        <button id="luckyBtn" class="lucky-btn" type="button" aria-label="Мне повезёт" title="Мне повезёт">🎲</button>
+        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Сменить тему" title="Сменить тему">🌙</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Прелоадер -->
+  <div id="loader" class="loader" aria-hidden="false">
+    <div class="loader-spinner"></div>
+    <p>Загружаем каталог…</p>
+  </div>
+
+  <main class="main">
+    <section class="search-section" aria-label="Поиск и фильтры">
+      <div class="search-row">
+        <div class="search-wrap">
+          <input
+            id="searchInput"
+            class="search-input"
+            type="text"
+            inputmode="search"
+            placeholder="Поиск по имени, нише или платформе…"
+            aria-label="Поиск по каталогу"
+            autocomplete="off"
+          >
+          <button id="searchClear" class="search-clear hidden" type="button" aria-label="Очистить поиск" title="Очистить поиск">✕</button>
+        </div>
+        <div class="sort-wrap">
+          <select id="sortSelect" class="sort-select" aria-label="Сортировка">
+            <option value="subs_desc">Подписчики ↓</option>
+            <option value="subs_asc">Подписчики ↑</option>
+            <option value="name">Имя А-Я</option>
+            <option value="name_desc">Имя Я-А</option>
+            <option value="id">Новые</option>
+          </select>
+          <button id="resetBtn" class="reset-btn hidden" type="button" title="Сбросить фильтры">↺ Сбросить</button>
+        </div>
+      </div>
+      <div id="chips" class="chips" role="group" aria-label="Платформы"></div>
+      <div id="chips2" class="chips chips2" role="group" aria-label="Ниши"></div>
+    </section>
+
+    <section aria-label="Каталог блогеров">
+      <div id="catalog" class="catalog"></div>
+      <div id="emptyState" class="empty-state" hidden>
+        <div class="empty-emoji" aria-hidden="true">📭</div>
+        <p>Ничего не найдено</p>
+        <p class="empty-sub">Попробуйте изменить запрос или сбросить фильтры</p>
+      </div>
+    </section>
+  </main>
+
+  <button id="toTop" class="to-top" type="button" aria-label="Наверх" title="Наверх">↑</button>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- Модалка деталей блогера -->
+  <div id="detailModal" class="modal" aria-hidden="true">
+    <div class="modal-overlay" data-close-detail=""></div>
+    <div class="modal-panel detail-panel" role="dialog" aria-modal="true" aria-label="Подробнее о блогере">
+      <button id="detailCloseBtn" class="detail-close" type="button" aria-label="Закрыть">✕</button>
+      <div id="detailBody" class="detail-body"></div>
+    </div>
+  </div>
+
+  <!-- Модалка статистики -->
+  <div id="statsModal" class="modal" aria-hidden="true">
+    <div class="modal-overlay" data-close-stats=""></div>
+    <div class="modal-panel detail-panel" role="dialog" aria-modal="true" aria-label="Статистика каталога">
+      <div class="modal-head stats-head">
+        <span class="modal-head-title">📊 Статистика</span>
+      </div>
+      <button id="statsCloseBtn" class="detail-close" type="button" aria-label="Закрыть">✕</button>
+      <div id="statsBody" class="stats-body"></div>
+    </div>
+  </div>
+
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
