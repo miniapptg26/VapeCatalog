@@ -115,5 +115,44 @@
     "url": "https://t.me/rolluplaboratory",
     "image": "https://github.com/user-attachments/assets/d0dfca0a-109d-4b62-84e8-5716e3723f1d",
     "emoji": "📱"
+  },
+  {
+    "id": 10,
+    "name": "@hochu_liquid",
+    "displayName": "HOCHU LAB",
+    "niche": "Бренд Конструкторов",
+    "platform": "telegram",
+    "subscribers": 1133,
+    "verified": true,
+    "description": "Представляет собой производство конструкторов",
+    "url": "https://t.me/hochu_liquid",
+    "image": "https://github.com/user-attachments/assets/fcdbd9c1-3227-4195-8165-269950179b0c",
+    "emoji": "📱"
+  },
+  {
+    "id": 11,
+    "name": "@sensecompany",
+    "displayName": "QVKS",
+    "niche": "Бренд Конструкторов",
+    "platform": "telegram",
+    "subscribers": 5755,
+    "verified": true,
+    "description": "Представляет собой производство конструкторов",
+    "url": "https://t.me/sensecompany",
+    "image": "https://github.com/user-attachments/assets/3c915695-2382-46c4-aa98-ab6f54df0365",
+    "emoji": "📱"
+  },
+  {
+    "id": 12,
+    "name": "@liquid_404",
+    "displayName": "404 | liquid",
+    "niche": "Бренд Конструкторов",
+    "platform": "telegram",
+    "subscribers": 4785,
+    "verified": true,
+    "description": "Представляет собой производство конструкторов",
+    "url": "https://t.me/liquid_404",
+    "image": "https://github.com/user-attachments/assets/a31073c1-351e-4e0b-9208-5e0e46a5c2a9",
+    "emoji": "📱"
   }
 ]
