@@ -209,7 +209,7 @@
   },
   {
   "id": 17,
-  "name": "@Mtl_zone_bot,
+  "name": "@Mtl_zone_bot",
   "displayName": "MTL ZONE",
   "niche": "Чат",
   "platform": "telegram",
@@ -222,7 +222,7 @@
   },
   {
   "id": 18,
-  "name": "@whitestore174,
+  "name": "@whitestore174",
   "displayName": "White Store",
   "niche": "Чат",
   "platform": "telegram",
@@ -235,7 +235,7 @@
   },
   {
   "id": 19,
-  "name": "@HabibShop,
+  "name": "@HabibShop",
   "displayName": "HABIB SHOP",
   "niche": "Чат",
   "platform": "telegram",
@@ -248,7 +248,7 @@
   },
   {
   "id": 20,
-  "name": "@BossMod,
+  "name": "@BossMod",
   "displayName": "BOSS_MOD",
   "niche": "Чат",
   "platform": "telegram",
@@ -261,7 +261,7 @@
   },
   {
   "id": 21,
-  "name": "@DedKarasik,
+  "name": "@DedKarasik",
   "displayName": "DED KARASIK 2.0",
   "niche": "Чат",
   "platform": "telegram",
